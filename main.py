@@ -1,6 +1,7 @@
 import pandas as pd
 import data_functions as df_funcs
 from transformers import AutoTokenizer, AutoModel
+from text_processing import TextProcessor, TextConfig
 from sklearn.preprocessing import LabelEncoder
 # Read csv file
 df = pd.read_csv("qogita_filtered_products.csv")
@@ -26,6 +27,13 @@ df_train.to_csv("train.csv", index=False)
 df_val.to_csv("validation.csv", index=False)
 df_test.to_csv("test.csv", index=False)
 '''
+
+tp = TextProcessor(TextConfig(model_name="bert-base-uncased", pooling="mean"))
+train_text_emb = tp.transform_df(df_train)
+val_text_emb = tp.transform_df(df_val)
+test_text_emb = tp.transform_df(df_test)
+
+
 ##############################################################
 
 

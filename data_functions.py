@@ -21,29 +21,6 @@ def split_dataset(df, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15, random_s
 
     return df_train, df_val, df_test
 
-def normalize_text(s):
-    if not isinstance(s, str):
-        s = ""
-    s = s.strip()
-    s = re.sub(r'\s+', ' ', s)  # Replace multiple spaces with a single space
-    s = s.lower()  # Convert to lowercase
-    return s
 
-def build_text(title, brand):
-    t = normalize_text(title)
-    b = normalize_text(brand)
-    if t and b:
-        return f"{t}. brand: {b}"
-    else:
-        return t
-    
-
-# when text encoder like BERT is used, it doesn't give you one vector but gives matrix but only one vector is needed. So we just use mean pooling!
-@torch.no_grad
-def mean_pooling(last_hidden_state, attention_mask):
-    mask = attention_mask.unsqueeze(-1).type_as(last_hidden_state)
-    summed = (last_hidden_state * mask).sum(dim=1)
-    counts = mask.sum(dim=1).clamp(min=1e-9)
-    return summed / counts  
 
 
