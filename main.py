@@ -20,9 +20,14 @@ df_filtered = df_funcs.filter_categories_with_min_products("qogita_filtered_prod
 # Split the dataset into train, validation, and test sets
 df_train, df_val, df_test = df_funcs.split_dataset(df_filtered, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15)
 
+'''
 # Save the filtered DataFrame to a new CSV file
 df_train.to_csv("train.csv", index=False)
 df_val.to_csv("validation.csv", index=False)
 df_test.to_csv("test.csv", index=False)
+'''
+##############################################################
+
+
 
  

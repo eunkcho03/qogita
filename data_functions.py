@@ -39,9 +39,11 @@ def build_text(title, brand):
     
 
 # when text encoder like BERT is used, it doesn't give you one vector but gives matrix but only one vector is needed. So we just use mean pooling!
-
+@torch.no_grad
 def mean_pooling(last_hidden_state, attention_mask):
     mask = attention_mask.unsqueeze(-1).type_as(last_hidden_state)
     summed = (last_hidden_state * mask).sum(dim=1)
     counts = mask.sum(dim=1).clamp(min=1e-9)
     return summed / counts  
+
+
