@@ -5,13 +5,13 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 from tqdm import tqdm
 
-df_train = pd.read_csv("train.csv")
-df_val   = pd.read_csv("validation.csv")
-df_test  = pd.read_csv("test.csv")
+df_train = pd.read_csv("train2.csv")
+df_val   = pd.read_csv("validation2.csv")
+df_test  = pd.read_csv("test2.csv")
 
-Xtr_txt = torch.load("models/artifacts/text_emb_train.pt", map_location="cpu", weights_only=True)
-Xva_txt = torch.load("models/artifacts/text_emb_validation.pt", map_location="cpu", weights_only=True)
-Xte_txt = torch.load("models/artifacts/text_emb_test.pt", map_location="cpu", weights_only=True)
+Xtr_txt = torch.load("models/artifacts/text/text_cash/text_emb_train.pt", map_location="cpu", weights_only=True)
+Xva_txt = torch.load("models/artifacts/text/text_cash/text_emb_validation.pt", map_location="cpu", weights_only=True)
+Xte_txt = torch.load("models/artifacts/text/text_cash/text_emb_test.pt", map_location="cpu", weights_only=True)
 
 train_data, val_data, test_data = Xtr_txt, Xva_txt, Xte_txt
 
@@ -36,7 +36,7 @@ input_dim = train_data.shape[1]
 class MLP(nn.Module):
     def __init__(self, input_dim, num_classes):
         super().__init__()
-        self.fc1 = nn.Linear(input_dim, 1024)  
+        self.fc1 = nn.Linear(input_dim, 1024)  # increased from 512 → 1024
         self.fc2 = nn.Linear(1024, 512)
         self.fc3 = nn.Linear(512, 512)
         self.fc4 = nn.Linear(512, 256)
