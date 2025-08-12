@@ -1,70 +1,56 @@
-from dataclasses import dataclass
-import re
 import pandas as pd
-from transformers import AutoTokenizer, AutoModel
 import torch
-
-@dataclass
-class TextConfig:
-    model_name: str = "bert-base-uncased"
-    max_length: int = 128
-    batch_size: int = 32
-    pooling_strategy: str = "mean"
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+from transformers import AutoTokenizer, AutoModel
 
 class TextProcessor:
-    def __init__(self, config: TextConfig):
-        self.config = config
-        self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-        self.model = AutoModel.from_pretrained(config.model_name).to(config.device)
+    def __init__(self,
+                 model_name="sentence-transformers/all-MiniLM-L6-v2",
+                 max_length=48,
+                 batch_size=256,
+                 device=None):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.max_length = max_length
+        self.batch_size = batch_size
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16 if self.device == "cuda" else None,
+            low_cpu_mem_usage=True
+        ).to(self.device)
         self.model.eval()
-        self.uncased = "uncased" in config.model_name.lower()
 
-    def transform_df(self, df: pd.DataFrame, title_col="Name", brand_col="Brand"):
-        texts = [self.build_text(t, b) for t, b in zip(df[title_col], df[brand_col])]
-        return self.embed_texts(texts)
+    def transform_df(self, df: pd.DataFrame, title_col="Name", brand_col=None):
+        # simplest text: title only (optionally add brand if you want)
+        if brand_col is None:
+            texts = [str(t).strip() if isinstance(t, str) else "" for t in df[title_col]]
+        else:
+            texts = [
+                (f"{str(t).strip()}. brand: {str(b).strip()}" if str(b).strip() else str(t).strip())
+                for t, b in zip(df[title_col], df[brand_col])
+            ]
+        return self._embed_texts(texts)
 
-    def tokenize_batches(self, texts):
-        B = self.config.batch_size
-        for i in range(0, len(texts), B):
-            enc = self.tokenizer(
-                texts[i:i+B],
-                padding=True,
-                truncation=True,
-                max_length=self.config.max_length,
-                return_tensors="pt",
-            )
-            yield {k: v.to(self.config.device) for k, v in enc.items()}
+    def _tokenize_batch(self, texts):
+        return self.tokenizer(
+            texts,
+            padding=True,            # pad to longest in this batch
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt"
+        )
 
-    @torch.no_grad()
-    def embed_texts(self, texts):
+    def _embed_texts(self, texts):
         reps = []
-        for enc in self.tokenize_batches(texts):
-            out = self.model(**enc) 
-            if self.config.pooling_strategy == "mean":
-                emb = self.mean_pooling(out.last_hidden_state, enc["attention_mask"])
-            else:  # "cls"
-                emb = out.last_hidden_state[:, 0, :]
-            reps.append(emb.cpu())
-        return torch.cat(reps, dim=0)
-
-    @torch.no_grad()
-    def mean_pooling(self, last_hidden_state, attention_mask):
-        mask = attention_mask.unsqueeze(-1).type_as(last_hidden_state)
-        summed = (last_hidden_state * mask).sum(dim=1)              
-        counts = mask.sum(dim=1).clamp(min=1e-9)              
-        return summed / counts                                     
-
-    def normalize_text(self, s):
-        if not isinstance(s, str):
-            s = ""
-        s = s.strip()
-        s = re.sub(r"\s+", " ", s)
-        if self.uncased:
-            s = s.lower()
-        return s
-
-    def build_text(self, title, brand):
-        t = self.normalize_text(title)
-        b = self.normalize_text(brand)
-        return f"{t}. brand: {b}" if b else t
+        B = self.batch_size
+        with torch.inference_mode():
+            for i in range(0, len(texts), B):
+                enc = self._tokenize_batch(texts[i:i+B]).to(self.device)
+                # CLS pooling (first token)
+                if self.device == "cuda":
+                    with torch.cuda.amp.autocast():
+                        out = self.model(**enc).last_hidden_state[:, 0, :]
+                else:
+                    out = self.model(**enc).last_hidden_state[:, 0, :]
+                reps.append(out.detach().cpu())
+        return torch.cat(reps, dim=0)  # [N, hidden_size]

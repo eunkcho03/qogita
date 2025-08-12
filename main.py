@@ -2,11 +2,13 @@ import pandas as pd
 import data_functions as df_funcs
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-from text_processing import TextProcessor, TextConfig
+from text_processing import TextProcessor
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 from image_processing import ImageEmbedder
 import torch
+from tqdm import tqdm
+
 # Read csv file
 df = pd.read_csv("qogita_filtered_products.csv")
 
@@ -32,17 +34,20 @@ df_val.to_csv("validation.csv", index=False)
 df_test.to_csv("test.csv", index=False)
 '''
 
-tp = TextProcessor(TextConfig(model_name="bert-base-uncased"))
-train_text_emb = tp.transform_df(df_train)
+print("Computing TEXT embeddings...", flush=True)
+tp = TextProcessor()
+train_text_emb = tp.transform_df(df_train)  
 val_text_emb = tp.transform_df(df_val)
 test_text_emb = tp.transform_df(df_test)
+print("Done TEXT embeddings.", flush=True)
 
+print("Computing IMAGE embeddings...", flush=True)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 IE = ImageEmbedder(device=device)
 train_image_emb = IE.embed_dataframe(df_train, url_column="Image URL")
 val_image_emb = IE.embed_dataframe(df_val, url_column="Image URL")          
 test_image_emb = IE.embed_dataframe(df_test, url_column="Image URL")
-
+print("Done IMAGE embeddings.", flush=True)
 train_data = torch.cat([train_text_emb, train_image_emb], dim=1)
 val_data = torch.cat([val_text_emb, val_image_emb], dim=1)
 test_data = torch.cat([test_text_emb, test_image_emb], dim=1)
@@ -92,14 +97,12 @@ model = MLP(input_dim, num_classes).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
 
-# -----------------------------
-# 8) Train helpers
-# -----------------------------
+
 @torch.no_grad()
-def evaluate(dataloader, model, criterion):
+def evaluate(dataloader, model, criterion, desc="Eval"):
     model.eval()
     losses, all_logits, all_labels = [], [], []
-    for xb, yb in dataloader:
+    for xb, yb in tqdm(dataloader, desc=desc, leave=False):
         xb = xb.to(device).float()
         yb = yb.to(device)
         logits = model(xb)
@@ -107,16 +110,19 @@ def evaluate(dataloader, model, criterion):
         losses.append(loss.item())
         all_logits.append(logits.detach().cpu())
         all_labels.append(yb.detach().cpu())
+
     logits = torch.cat(all_logits, dim=0)
     labels = torch.cat(all_labels, dim=0)
     preds  = logits.argmax(dim=1)
+
     acc = accuracy_score(labels.numpy(), preds.numpy())
     macro_f1 = f1_score(labels.numpy(), preds.numpy(), average="macro")
     return (sum(losses) / max(1, len(losses))), {"acc": acc, "macro_f1": macro_f1}, preds
 
+
 def train_epoch(train_loader, val_loader, model, optimizer, criterion):
     model.train()
-    for xb, yb in train_loader:
+    for xb, yb in tqdm(train_loader, desc="Train", leave=False):
         xb = xb.to(device).float()
         yb = yb.to(device)
         optimizer.zero_grad()
@@ -124,13 +130,12 @@ def train_epoch(train_loader, val_loader, model, optimizer, criterion):
         loss = criterion(logits, yb)
         loss.backward()
         optimizer.step()
-    train_loss, train_metrics, _ = evaluate(train_loader, model, criterion)
-    _, val_metrics, vpred = evaluate(val_loader, model, criterion)
+
+    train_loss, train_metrics, _ = evaluate(train_loader, model, criterion, desc="Eval(train)")
+    _, val_metrics, vpred = evaluate(val_loader, model, criterion, desc="Eval(val)")
     return train_loss, train_metrics, val_metrics, vpred
 
-# -----------------------------
-# 9) Training loop w/ early stop
-# -----------------------------
+
 best_val = -1.0
 best_state = None
 patience = 3
@@ -154,9 +159,7 @@ for ep in range(1, epochs + 1):
 if best_state is not None:
     model.load_state_dict(best_state)
 
-# -----------------------------
-# 10) Final test
-# -----------------------------
+
 test_loss, test_metrics, test_preds = evaluate(te_dl, model, criterion)
 print(f"TEST | loss={test_loss:.4f} acc={test_metrics['acc']:.3f} macro-F1={test_metrics['macro_f1']:.3f}")
 print(classification_report(yte, test_preds.numpy(), target_names=le.classes_))
